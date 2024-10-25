@@ -10,9 +10,21 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  GITHUB_MACHINE_USER_API_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
+  GITHUB_MACHINE_USER: ${{ secrets.GIT_GITHUB_MACHINE_USER }}
+  GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
+  GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
+
 jobs:
   images:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         script: [php]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions
+        with:
+          dir: images
+          script: ${{ matrix.script }}

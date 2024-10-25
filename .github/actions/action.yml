@@ -17,8 +17,7 @@ runs:
         script: ${{ inputs.script }}
       run: |
         set -ex
-        docker login -u "${DOCKER_USERNAME}" -p "${DOCKER_PASSWORD}"
-        docker run -e GITHUB_MACHINE_USER_API_TOKEN -e GITHUB_MACHINE_USER -e GIT_USER_EMAIL -e GIT_USER_NAME -e DEBUG \
-          --rm -v $PWD:/images -v /var/run/docker.sock:/var/run/docker.sock wodby/docker:dev \
+        docker run --platform linux/amd64 -e GITHUB_MACHINE_USER_API_TOKEN -e GITHUB_MACHINE_USER -e GIT_USER_EMAIL -e GIT_USER_NAME \
+        --rm -v $PWD:/images -v /tmp/docker-php:/tmp/docker-php -v /var/run/docker.sock:/var/run/docker.sock wodby/docker:dev \
           bash -c "cd /images/${dir} && ./${script}.sh"
       shell: bash
