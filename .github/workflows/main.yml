@@ -28,3 +28,14 @@ jobs:
         with:
           dir: images
           script: ${{ matrix.script }}
+  stability-tags:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        script: [docker-wordpress]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions
+        with:
+          dir: stability-tags
+          script: ${{ matrix.script }}
