@@ -153,3 +153,79 @@ update_from_base_image() {
 
   _update_versions "${versions}" "${base_image}" "${image#*/}"
 }
+
+_get_docker_image_timestamp() {
+  local repo="${1}"
+  local tag="${2}"
+
+  if [[ ! "${repo}" =~ / ]]; then
+    repo="library/${repo}"
+  fi
+
+  local url="https://hub.docker.com/v2/repositories/${repo}/tags/${tag}/"
+
+  curl -L -s "https://hub.docker.com/v2/repositories/${repo}/tags/${tag}" | jq -r '.last_updated'
+}
+
+_check_and_update_timestamps() {
+  local versions="${1}"
+  local base_image="${2}"
+  local base_filename="${3}"
+
+  local updated
+
+  IFS=' ' read -r -a arr_versions <<<"${versions}"
+
+  echo "=============================="
+  echo "Checking for timestamp updates"
+  echo "=============================="
+
+  for version in "${arr_versions[@]}"; do
+
+    local new_version_timestamp
+    local cur_timestamp
+
+    echo "Checking version: ${base_filename} ${version}"
+    new_version_timestamp=$(_get_docker_image_timestamp "${base_filename}" "${version}")
+
+    if [[ -z "${new_version_timestamp}" ]]; then
+      echo >&2 "Failed to acquire latest timestamp from Docker"
+      exit 1
+    fi
+
+    local filename=".${base_filename##*-}"
+
+    cur_timestamp=$(cat "${filename}" | grep "^${version}" | grep -oP "(?<=#)(.+)$")
+
+    if [[ -z "${cur_timestamp}" ]]; then
+      echo >&2 "Failed to acquire current timestamp"
+      exit 1
+    fi
+
+    if [[ "${cur_timestamp}" != "${new_version_timestamp}" ]]; then
+      echo "Timestamp for ${version} (${cur_timestamp}) is outdated, updating to ${new_version_timestamp}"
+      sed -i "s/${version}#${cur_timestamp}/${version}#${new_version_timestamp}/" "${filename}"
+      updated=1
+    fi
+
+  done
+
+  if [[ -n "${updated}" ]]; then
+    echo "Committing changes..."
+    _git_commit ./ "chore(deps): rebuild against updated base image"
+
+    git push origin
+  else
+    echo "No changes detected in timestamps."
+  fi
+}
+
+update_and_rebuild() {
+  local image="${1}"
+  local base_image="${2}"
+  local versions="${3}"
+
+  _git_clone "${image}"
+
+  _check_and_update_timestamps "${versions}" "${image}" "${base_image}"
+}
