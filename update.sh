@@ -50,7 +50,6 @@ _git_clone() {
 
   git clone "https://${GITHUB_MACHINE_USER}:${GITHUB_MACHINE_USER_API_TOKEN}@github.com/${slug}" "/tmp/${slug#*/}"
   cd "/tmp/${slug#*/}"
-  git checkout test
 }
 
 _get_image_tags() {
