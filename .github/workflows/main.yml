@@ -39,3 +39,14 @@ jobs:
         with:
           dir: stability-tags
           script: ${{ matrix.script }}
+  tools:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        script: [wp-cli]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions
+        with:
+          dir: tools
+          script: ${{ matrix.script }}
