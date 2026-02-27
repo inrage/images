@@ -63,7 +63,7 @@ _check_sury_versions() {
     local latest_php
     latest_php=$(docker run --rm --entrypoint bash "inrage/docker-prestashop:${phpVersion}" \
       -c "apt-get update -qq > /dev/null 2>&1 && apt-cache policy php${phpVersion} \
-      | grep Candidate | awk '{print \$2}' | cut -d'-' -f1 | cut -d'+' -f1")
+      | grep Candidate | awk '{print \$2}' | sed 's/^[0-9]*://' | cut -d'-' -f1 | cut -d'+' -f1")
 
     if [[ -z "${latest_php}" ]]; then
       echo >&2 "Failed to get PHP ${phpVersion} version from Sury"
@@ -73,7 +73,7 @@ _check_sury_versions() {
     local latest_apache
     latest_apache=$(docker run --rm --entrypoint bash "inrage/docker-prestashop:${phpVersion}" \
       -c "apt-get update -qq > /dev/null 2>&1 && apt-cache policy apache2 \
-      | grep Candidate | awk '{print \$2}' | cut -d'-' -f1 | cut -d'+' -f1")
+      | grep Candidate | awk '{print \$2}' | sed 's/^[0-9]*://' | cut -d'-' -f1 | cut -d'+' -f1")
 
     echo "PHP ${phpVersion}: installed=${current_php} available=${latest_php} apache=${latest_apache}"
 
