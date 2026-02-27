@@ -18,6 +18,6 @@ runs:
       run: |
         set -ex
         docker run --platform linux/amd64 -e GITHUB_MACHINE_USER_API_TOKEN -e GITHUB_MACHINE_USER -e GIT_USER_EMAIL -e GIT_USER_NAME \
-        --rm -v $PWD:/images -v /tmp/docker-php:/tmp/docker-php -v /var/run/docker.sock:/var/run/docker.sock wodby/docker:dev \
+        --rm -v $PWD:/images -v /tmp/docker-php:/tmp/docker-php -v /tmp/docker-prestashop:/tmp/docker-prestashop -v /var/run/docker.sock:/var/run/docker.sock wodby/docker:dev \
           bash -c "cd /images/${dir} && ./${script}.sh"
       shell: bash

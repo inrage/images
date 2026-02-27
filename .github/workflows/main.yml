@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        script: [docker-wordpress]
+        script: [docker-wordpress, docker-prestashop]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions
