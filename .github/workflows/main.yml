@@ -5,7 +5,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "17 * * * *"
 
   pull_request:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        script: [docker-wordpress, docker-prestashop]
+        script: [docker-wordpress, docker-prestashop, frankenphp]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions

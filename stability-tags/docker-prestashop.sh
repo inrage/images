@@ -70,6 +70,21 @@ _check_sury_versions() {
       continue
     fi
 
+    local current_package
+    current_package=$(jq -r ".versions[\"${phpVersion}\"].package // empty" versions.json)
+
+    local latest_package
+    latest_package=$(docker run --rm --entrypoint bash "inrage/docker-prestashop:${phpVersion}" \
+      -c "apt-get update -qq > /dev/null 2>&1 && apt-cache policy php${phpVersion}-cli \
+      | grep Candidate | awk '{print \$2}'")
+
+    if [[ -n "${latest_package}" && "${current_package}" != "${latest_package}" ]]; then
+      echo "Updating PHP ${phpVersion} package: ${current_package:-none} -> ${latest_package}"
+      jq --arg v "${phpVersion}" --arg pkg "${latest_package}" \
+        '.versions[$v].package = $pkg' versions.json > tmp.json && mv tmp.json versions.json
+      updated=1
+    fi
+
     local latest_apache
     latest_apache=$(docker run --rm --entrypoint bash "inrage/docker-prestashop:${phpVersion}" \
       -c "apt-get update -qq > /dev/null 2>&1 && apt-cache policy apache2 \
