@@ -193,7 +193,8 @@ _check_and_update_timestamps() {
       exit 1
     fi
 
-    local filename=".${base_filename##*-}"
+    local base_name="${base_filename##*/}"
+    local filename=".${base_name##*-}"
 
     cur_timestamp=$(cat "${filename}" | grep "^${version}" | grep -oP "(?<=#)(.+)$")
 
