@@ -142,7 +142,7 @@ _update_versions() {
 
 find_versions() {
   if [[ -f "./versions.json" ]]; then
-    jq -r '.latest.phpVersions[] | "\(.tag)"' versions.json | tr '\n' ' '
+    jq -r '.latest.phpVersions[] | select(.sury == null) | .tag' versions.json | tr '\n' ' '
   else
     echo "versions.json not found"
     exit 1
