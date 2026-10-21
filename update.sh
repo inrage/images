@@ -116,6 +116,12 @@ _update_versions() {
     fi
 
     if [[ $(compare_semver "${latest_ver}" "${version}") == 0 ]]; then
+      if ! docker manifest inspect "php:${latest_ver}-fpm" 2>/dev/null \
+        | jq -e '.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")' >/dev/null; then
+        echo "php:${latest_ver}-fpm is not yet published for linux/amd64, skipping"
+        continue
+      fi
+
       echo "${name^} ${version} is outdated, updating to ${latest_ver}"
 
       # Replace tag with sed in versions.json
