@@ -4,16 +4,26 @@ set -e
 
 . ../update.sh
 
+SURY_INDEX_MIN_AGE_SECONDS=7200
+
 _update_sury_versions() {
   local index="/tmp/sury-trixie-packages"
+  local index_age
 
   echo "==============================="
   echo "Checking Sury package revisions"
   echo "==============================="
 
-  if ! wget -q -O - "https://packages.sury.org/php/dists/trixie/main/binary-amd64/Packages.gz" | gunzip -c >"${index}" || [[ ! -s "${index}" ]]; then
+  if ! curl -fsSL -R -o "${index}.gz" "https://packages.sury.org/php/dists/trixie/main/binary-amd64/Packages.gz" || ! gunzip -c "${index}.gz" >"${index}" || [[ ! -s "${index}" ]]; then
     echo >&2 "Failed to fetch Sury package index"
     exit 1
+  fi
+
+  index_age=$(($(date +%s) - $(stat -c %Y "${index}.gz")))
+
+  if ((index_age < SURY_INDEX_MIN_AGE_SECONDS)); then
+    echo "Sury index changed ${index_age}s ago, its caches may still serve the previous one, skipping"
+    return
   fi
 
   for folder in $(jq -r '.latest.phpVersions[] | select(.sury != null) | .folder' versions.json); do
