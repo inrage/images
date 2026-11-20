@@ -93,8 +93,6 @@ _update_versions() {
   local upstream="${2%:*}"
   local name="${3}"
 
-  local updated=()
-
   IFS=' ' read -r -a arr_versions <<<"${versions}"
 
   echo "============================"
@@ -129,15 +127,10 @@ _update_versions() {
       _regenerate_images
 
       _git_commit ./ "Update ${upstream} ${check_ver} to ${latest_ver}"
-      updated+=("${latest_ver}")
     else
       echo "Version ${version} is already the latest version"
     fi
   done
-
-  if [[ "${#updated[@]}" != 0 ]]; then
-    git push origin
-  fi
 }
 
 find_versions() {

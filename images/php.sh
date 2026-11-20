@@ -6,7 +6,6 @@ set -e
 
 _update_sury_versions() {
   local index="/tmp/sury-trixie-packages"
-  local updated=()
 
   echo "==============================="
   echo "Checking Sury package revisions"
@@ -36,17 +35,14 @@ _update_sury_versions() {
       sed -i "s|\"sury\": \"${current//./\\.}\"|\"sury\": \"${latest}\"|" versions.json
       _regenerate_images
       _git_commit ./ "Update PHP ${folder} Sury package to ${latest}"
-      updated+=("${latest}")
     else
       echo "PHP ${folder} Sury package is already the latest version"
     fi
   done
-
-  if [[ "${#updated[@]}" != 0 ]]; then
-    git push origin
-  fi
 }
 
 update_from_base_image "inrage/docker-php" "php"
 
 _update_sury_versions
+
+git push origin
