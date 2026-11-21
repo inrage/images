@@ -4,17 +4,26 @@ set -e
 
 . ../update.sh
 
+SURY_INDEX_MIN_AGE_SECONDS=7200
+
 _update_sury_versions() {
   local index="/tmp/sury-trixie-packages"
-  local updated=()
+  local index_age
 
   echo "==============================="
   echo "Checking Sury package revisions"
   echo "==============================="
 
-  if ! wget -q -O - "https://packages.sury.org/php/dists/trixie/main/binary-amd64/Packages.gz" | gunzip -c >"${index}" || [[ ! -s "${index}" ]]; then
+  if ! curl -fsSL -R -o "${index}.gz" "https://packages.sury.org/php/dists/trixie/main/binary-amd64/Packages.gz" || ! gunzip -c "${index}.gz" >"${index}" || [[ ! -s "${index}" ]]; then
     echo >&2 "Failed to fetch Sury package index"
     exit 1
+  fi
+
+  index_age=$(($(date +%s) - $(stat -c %Y "${index}.gz")))
+
+  if ((index_age < SURY_INDEX_MIN_AGE_SECONDS)); then
+    echo "Sury index changed ${index_age}s ago, its caches may still serve the previous one, skipping"
+    return
   fi
 
   for folder in $(jq -r '.latest.phpVersions[] | select(.sury != null) | .folder' versions.json); do
@@ -36,17 +45,14 @@ _update_sury_versions() {
       sed -i "s|\"sury\": \"${current//./\\.}\"|\"sury\": \"${latest}\"|" versions.json
       _regenerate_images
       _git_commit ./ "Update PHP ${folder} Sury package to ${latest}"
-      updated+=("${latest}")
     else
       echo "PHP ${folder} Sury package is already the latest version"
     fi
   done
-
-  if [[ "${#updated[@]}" != 0 ]]; then
-    git push origin
-  fi
 }
 
 update_from_base_image "inrage/docker-php" "php"
 
 _update_sury_versions
+
+git push origin
