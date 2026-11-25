@@ -22,19 +22,21 @@ gh workflow run renovate-wordpress.yml --repo inrage/images -f mode=update
 
 Le champ facultatif `repository_filter` permet de limiter un passage à un dépôt de l'organisation, par exemple `-f repository_filter=inrage/nom-du-depot`. Sa valeur par défaut reste `inrage/*`.
 
-Les exécutions de mise à jour sont sérialisées. Un push ou une PR sur ces fichiers lance uniquement leur validation, sans accès au compte machine et sans mise à jour des consommateurs.
+Les exécutions de mise à jour sont sérialisées. Le mode `update` exige la branche `main`. Un push ou une PR sur ces fichiers lance uniquement leur validation, sans accès à la clé de l'application et sans mise à jour des consommateurs.
+
+## GitHub App
+
+L'application dédiée doit être installée sur l'organisation `inrage` avec accès à tous ses dépôts, y compris les futurs dépôts. Le workflow demande un jeton pour cette installation sans inventaire de sites. L'identité du bot et son auteur Git sont détectés par Renovate à partir de ce jeton.
+
+La variable d'organisation `RENOVATE_APP_CLIENT_ID` et le secret `RENOVATE_APP_PRIVATE_KEY` doivent être rendus accessibles uniquement à `images` et `docker-wordpress`. Aucun jeton personnel ni celui d'`InrBot` n'est utilisé par ce flux.
+
+Chaque job génère un jeton temporaire, valable au maximum une heure et révoqué à sa fin. Le mode `simulate` ne reçoit que des droits de lecture. Le mode `update` demande l'écriture sur Contents, Issues, Pull requests, Commit statuses et Workflows, ainsi que la lecture sur Administration, Checks et Members. Metadata reste implicitement en lecture. Les vérifications de mode, de branche et de filtre précèdent la création du jeton.
 
 ## Notification après publication
 
-Le dernier job de `inrage/docker-wordpress` appelle ce workflow après la réussite de toutes les variantes publiées sur `main`. Les publications WordPress sont également sérialisées ; un échec de la matrice ne déclenche pas le scan.
+Après installation du relais, le dernier job de `inrage/docker-wordpress` appelle ce workflow après la réussite de toutes les variantes publiées sur `main`. Les publications WordPress sont également sérialisées ; un échec de la matrice ne déclenche pas le scan.
 
-Le mode de configuration suivant copie le jeton machine déjà utilisé par `inrage/images` dans le secret chiffré `IMAGES_DISPATCH_TOKEN` du dépôt producteur :
-
-```sh
-gh workflow run renovate-wordpress.yml --repo inrage/images -f mode=configure-notifier
-```
-
-Ce mode nécessite que le compte machine puisse gérer les secrets de `inrage/docker-wordpress`. Le jeton n'est pas affiché. Il doit être relancé après rotation du jeton source. Le compte utilisé et ses scopes sont vérifiés dans les logs ; aucun jeton personnel supplémentaire n'est introduit.
+Le job producteur génère son propre jeton d'application, limité au dépôt `images` et à la permission Actions en écriture. Il peut ainsi déclencher le workflow consommateur sans recevoir ses droits d'écriture sur les sites. Une rotation de la clé privée s'effectue dans le secret d'organisation partagé.
 
 ## Configuration et protections
 

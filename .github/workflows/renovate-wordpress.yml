@@ -22,7 +22,6 @@ on:
         options:
           - simulate
           - update
-          - configure-notifier
         default: simulate
       repository_filter:
         description: Repository or pattern within inrage
@@ -59,14 +58,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Check access and scope
+      - name: Check execution scope
         env:
-          GH_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
           REPOSITORY_FILTER: ${{ inputs.repository_filter }}
           MODE: ${{ inputs.mode }}
         run: |
           case "$MODE" in
-            simulate|update|configure-notifier) ;;
+            simulate|update) ;;
             *) echo "Unsupported operation" >&2; exit 1 ;;
           esac
           if [[ "$MODE" != simulate && "$GITHUB_REF" != refs/heads/main ]]; then
@@ -77,20 +75,32 @@ jobs:
             echo "Use a single repository or pattern within inrage" >&2
             exit 1
           fi
-          test -n "$GH_TOKEN"
-          gh api user --jq '"GitHub account: " + .login'
-          gh api --include user | awk 'tolower($0) ~ /^x-oauth-scopes:/ {print}'
-          gh api repos/inrage/images --jq 'if .permissions.push then "Consumer workflow access: OK" else error("Missing write access to inrage/images") end'
-      - name: Configure publication notification
-        if: inputs.mode == 'configure-notifier'
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+        with:
+          client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: inrage
+          permission-administration: read
+          permission-checks: read
+          permission-members: read
+          permission-contents: ${{ inputs.mode == 'simulate' && 'read' || 'write' }}
+          permission-issues: ${{ inputs.mode == 'simulate' && 'read' || 'write' }}
+          permission-pull-requests: ${{ inputs.mode == 'simulate' && 'read' || 'write' }}
+          permission-statuses: ${{ inputs.mode == 'simulate' && 'read' || 'write' }}
+          permission-workflows: ${{ inputs.mode == 'update' && 'write' || '' }}
+      - name: Check GitHub App access
         env:
-          GH_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
-          printf '%s' "$GH_TOKEN" | gh secret set IMAGES_DISPATCH_TOKEN --repo inrage/docker-wordpress
+          test -n "$GH_TOKEN"
+          printf 'GitHub App: %s\n' "$APP_SLUG"
+          gh api installation/repositories --jq '"Accessible repositories: " + (.total_count | tostring)'
       - name: Update WordPress dependencies
-        if: inputs.mode != 'configure-notifier'
         env:
-          RENOVATE_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
+          RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
           RENOVATE_AUTODISCOVER_FILTER: ${{ inputs.repository_filter }}
           RENOVATE_CONFIG_FILE: ${{ inputs.mode == 'simulate' && '/config/renovate-wordpress.dry-run.cjs' || '/config/renovate-wordpress.json' }}
         run: |
