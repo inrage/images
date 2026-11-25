@@ -1,6 +1,7 @@
 require 'yaml'
 require 'tmpdir'
 require 'open3'
+require 'json'
 
 workflow = YAML.load_file(File.join(__dir__, '../.github/workflows/renovate-wordpress.yml'))
 steps = workflow.fetch('jobs').fetch('renovate').fetch('steps')
@@ -53,14 +54,67 @@ end
 
 puts "#{cases.length} preflight cases passed"
 
+reconcile = steps.find { |step| step['id'] == 'reconcile' }
+update = steps.find { |step| step['name'] == 'Update WordPress dependencies' }
+raise 'Reconciliation discovery must be schedule-only' unless reconcile['if'] == "github.event_name == 'schedule'"
+raise 'Scheduled updates must require an explicit nonempty result' unless update['if'] == "github.event_name != 'schedule' || steps.reconcile.outputs.has_repositories == 'true'"
+raise 'Scheduled discovery must override the global filter' unless update.fetch('env').fetch('RENOVATE_AUTODISCOVER_FILTER') == "${{ github.event_name == 'schedule' && steps.reconcile.outputs.repositories || env.REPOSITORY_FILTER }}"
+raise 'GraphQL discovery must fetch every page' unless reconcile.fetch('run').include?('gh api graphql --paginate --slurp')
+raise 'GraphQL discovery must scope its query' unless reconcile.fetch('run').include?('org:inrage is:pr is:open head:renovate-wordpress/wordpress-base-images')
+
+pull_request = lambda do |name, review = nil, branch = 'renovate-wordpress/wordpress-base-images'|
+  { 'headRefName' => branch, 'reviewDecision' => review, 'repository' => { 'nameWithOwner' => name, 'owner' => { 'login' => name.split('/').first } } }
+end
+page = lambda do |nodes, count = nodes.length, more = false|
+  { 'data' => { 'search' => { 'issueCount' => count, 'pageInfo' => { 'hasNextPage' => more, 'endCursor' => more ? 'next' : nil }, 'nodes' => nodes } } }
+end
+discovery_cases = [
+  ['no PR', [page.call([])], 0, []],
+  ['review required', [page.call([pull_request.call('inrage/alpha', 'REVIEW_REQUIRED'), pull_request.call('inrage/beta', 'CHANGES_REQUESTED')])], 0, []],
+  ['eligible pages', [page.call([pull_request.call('inrage/alpha')], 3, true), page.call([pull_request.call('inrage/beta', 'APPROVED'), pull_request.call('inrage/gamma')], 3)], 0, ['inrage/alpha', 'inrage/beta', 'inrage/gamma']],
+  ['different branch', [page.call([pull_request.call('inrage/alpha', nil, 'renovate-wordpress/wordpress-base-images-other')])], 0, []],
+  ['API error', [], 1, nil],
+  ['GraphQL error', [{ 'errors' => [{ 'message' => 'Unavailable' }] }], 0, nil],
+  ['foreign repository', [page.call([pull_request.call('other/alpha')])], 0, nil],
+  ['missing page', [page.call([pull_request.call('inrage/alpha')], 2, true)], 0, nil],
+  ['truncated search', [page.call([pull_request.call('inrage/alpha')], 1001)], 0, nil],
+]
+Dir.mktmpdir('renovate-reconciliation-') do |dir|
+  executable = File.join(dir, 'gh')
+  fixture = File.join(dir, 'response.json')
+  output = File.join(dir, 'outputs')
+  File.write(executable, "#!/bin/sh\ncat \"$GRAPHQL_FIXTURE\"\nexit \"$GRAPHQL_STATUS\"\n")
+  File.chmod(0o755, executable)
+  discovery_cases.each do |name, response, exit_code, expected|
+    File.write(fixture, JSON.generate(response))
+    File.write(output, '')
+    env = { 'PATH' => "#{dir}:#{ENV.fetch('PATH')}", 'GRAPHQL_FIXTURE' => fixture, 'GRAPHQL_STATUS' => exit_code.to_s, 'GITHUB_OUTPUT' => output }
+    _, stderr, status = Open3.capture3(env, 'bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', reconcile.fetch('run'))
+    raise "Unexpected discovery result for #{name}: #{stderr}" unless status.success? == !expected.nil?
+    result = File.readlines(output, chomp: true).to_h { |line| line.split('=', 2) }
+    if expected
+      raise "Wrong discovery scope for #{name}" unless JSON.parse(result.fetch('repositories')) == expected
+      raise "Wrong discovery gate for #{name}" unless result.fetch('has_repositories') == (!expected.empty?).to_s
+    else
+      raise "Failed discovery emitted a runnable scope for #{name}" unless result.empty?
+    end
+  end
+end
+puts "#{discovery_cases.length} reconciliation cases passed"
+
 policy_check = <<~'JS'
   import assert from 'node:assert/strict';
   import { readFileSync } from 'node:fs';
   import { runInNewContext } from 'node:vm';
   import { applyPackageRules } from '/usr/local/renovate/dist/util/package-rules/index.js';
   import { mergeChildConfig } from '/usr/local/renovate/dist/config/utils.js';
+  import { getConfig } from '/usr/local/renovate/dist/workers/global/config/parse/env.js';
 
   const policy = JSON.parse(readFileSync('/config/renovate-wordpress.json', 'utf8'));
+  const repositories = ['inrage/alpha', 'inrage/beta'];
+  const envConfig = await getConfig({ RENOVATE_AUTODISCOVER_FILTER: JSON.stringify(repositories) });
+  assert.deepEqual(envConfig.autodiscoverFilter, repositories);
+  assert.deepEqual(mergeChildConfig(policy, envConfig).autodiscoverFilter, repositories);
   const inherited = {
     automerge: true, automergeType: 'branch', automergeStrategy: 'squash', platformAutomerge: true, ignoreTests: true,
     packageRules: [{ matchPackageNames: ['*'], automerge: true, platformAutomerge: true, ignoreTests: true }],

@@ -100,10 +100,60 @@ jobs:
           test -n "$GH_TOKEN"
           printf 'GitHub App: %s\n' "$APP_SLUG"
           gh api installation/repositories --jq '"Accessible repositories: " + (.total_count | tostring)'
+      - name: Select repositories awaiting automerge
+        id: reconcile
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          response=$(mktemp)
+          trap 'rm -f "$response"' EXIT
+          query=$(cat <<'GRAPHQL'
+            query($endCursor: String) {
+              search(query: "org:inrage is:pr is:open head:renovate-wordpress/wordpress-base-images", type: ISSUE, first: 100, after: $endCursor) {
+                issueCount
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  ... on PullRequest {
+                    headRefName
+                    reviewDecision
+                    repository { nameWithOwner owner { login } }
+                  }
+                }
+              }
+            }
+          GRAPHQL
+          )
+          gh api graphql --paginate --slurp -f query="$query" > "$response"
+          repositories=$(jq -cer '
+            if type != "array" or length == 0 or any(.[]; (.errors // [] | length) > 0)
+            then error("Invalid GraphQL response") else . end
+            | map(.data.search) as $pages
+            | [$pages[].nodes[]] as $prs
+            | if ($pages | map(.issueCount) | unique | length) != 1
+                or $pages[0].issueCount > 1000
+                or ($prs | length) != $pages[0].issueCount
+                or $pages[-1].pageInfo.hasNextPage != false
+                or any($pages[:-1][]; .pageInfo.hasNextPage != true or (.pageInfo.endCursor | type) != "string" or .pageInfo.endCursor == "")
+              then error("Incomplete GraphQL pagination") else . end
+            | if any($prs[]; .repository.owner.login != "inrage" or (.repository.nameWithOwner | test("^inrage/[A-Za-z0-9_.-]+$")) == false)
+              then error("Repository outside inrage") else . end
+            | [$prs[]
+                | select(.headRefName == "renovate-wordpress/wordpress-base-images")
+                | select(.reviewDecision == null or .reviewDecision == "APPROVED")
+                | .repository.nameWithOwner] | unique
+          ' "$response")
+          printf 'repositories=%s\n' "$repositories" >> "$GITHUB_OUTPUT"
+          if [[ "$repositories" == '[]' ]]; then
+            printf 'has_repositories=false\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'has_repositories=true\n' >> "$GITHUB_OUTPUT"
+          fi
       - name: Update WordPress dependencies
+        if: github.event_name != 'schedule' || steps.reconcile.outputs.has_repositories == 'true'
         env:
           RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
-          RENOVATE_AUTODISCOVER_FILTER: ${{ env.REPOSITORY_FILTER }}
+          RENOVATE_AUTODISCOVER_FILTER: ${{ github.event_name == 'schedule' && steps.reconcile.outputs.repositories || env.REPOSITORY_FILTER }}
           RENOVATE_CONFIG_FILE: ${{ env.MODE == 'simulate' && '/config/renovate-wordpress.dry-run.cjs' || '/config/renovate-wordpress.json' }}
         run: |
           docker run --rm --cpus 2 --memory 4g \
