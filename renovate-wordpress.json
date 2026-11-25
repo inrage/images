@@ -32,7 +32,7 @@
   "force": {
     "automerge": false,
     "automergeType": "pr",
-    "automergeStrategy": "auto",
+    "automergeStrategy": "merge-commit",
     "platformAutomerge": false,
     "ignoreTests": false,
     "branchPrefix": "renovate-wordpress/",

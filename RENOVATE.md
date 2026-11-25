@@ -2,7 +2,7 @@
 
 Le workflow `Update WordPress consumers` découvre les dépôts accessibles de `inrage/*`, puis leurs références à `inrage/docker-wordpress`. Il n'existe aucune liste de sites à maintenir. Chaque dépôt doit déjà avoir sa configuration Renovate.
 
-Les mises à jour sont regroupées dans une PR par dépôt, sur une branche `renovate-wordpress/`. Les restrictions de versions des projets sont conservées. La fusion automatique est forcée à `false` : les CI actuelles ne construisent pas systématiquement l'image avant fusion.
+Les mises à jour sont regroupées dans une PR par dépôt, sur une branche `renovate-wordpress/`. Les restrictions de versions des projets sont conservées. Seuls les changements de digest de `inrage/docker-wordpress` avec un tag versionné inchangé peuvent être fusionnés automatiquement. Les alias comme `latest`, les changements de version et les autres images restent exclus de l'automerge.
 
 Le preset commun `inrage/inrage` exclut WordPress des traitements Mend via `wordpress-hosted-disabled`. Ce runner ignore seulement ce sous-preset d'exclusion ; les autres dépendances restent gérées par Mend. Le préfixe courant et l'ancien préfixe sont tous deux fixés à `renovate-wordpress/`, afin de ne pas reprendre les branches de l'autre bot.
 
@@ -23,6 +23,8 @@ gh workflow run renovate-wordpress.yml --repo inrage/images -f mode=update
 Le champ facultatif `repository_filter` permet de limiter un passage à un dépôt de l'organisation, par exemple `-f repository_filter=inrage/nom-du-depot`. Sa valeur par défaut reste `inrage/*`.
 
 Les exécutions de mise à jour sont sérialisées. Le mode `update` exige la branche `main`. Un push ou une PR sur ces fichiers lance uniquement leur validation, sans accès à la clé de l'application et sans mise à jour des consommateurs.
+
+Chaque heure, la réconciliation sélectionne seulement les dépôts ayant une PR ouverte sur `renovate-wordpress/wordpress-base-images`, sans approbation en attente ni changements demandés. Elle ne lance aucun scan Renovate si cette liste est vide. Les publications et les lancements manuels conservent la découverte globale.
 
 ## GitHub App
 
@@ -48,7 +50,11 @@ Le job producteur génère son propre jeton d'application, limité au dépôt `i
 
 L'image officielle Renovate 44.262.1 est épinglée par digest. Les configurations sont validées sans réseau. Le nettoyage des anciennes branches, les migrations de configuration, les alertes de vulnérabilité et la maintenance des fichiers de verrouillage sont désactivés. Le dashboard utilise un titre distinct de celui de Mend.
 
-Une fusion ultérieure peut déclencher les pipelines de production propres au projet. Aucun build ou déploiement de consommateur n'est lancé directement par ce workflow. Réactiver l'automerge nécessitera un véritable contrôle de construction de l'image avant fusion.
+L'automerge utilise `automergeType: pr`, `platformAutomerge: false` et `ignoreTests: false`. Renovate attend les vérifications disponibles et GitHub conserve ses protections de branche. Un résultat CodeRabbit `skipped` seul est considéré comme vert par Renovate ; il ne remplace pas une CI applicative. Sur les dépôts sans cette CI, la couverture repose sur les tests de l'image commune publiés avant notification et sur la restriction du changement au digest.
+
+La stratégie forcée `merge-commit` demande une fusion classique à GitHub, même si le dépôt préfère le squash. Les 30 consommateurs retrouvés par leurs PR le 25 novembre 2026 autorisent cette méthode. Cela évite les trailers de coauteur ajoutés par GitHub lors des squashes ordinaires. Renovate 44.262.1 conserve toutefois un repli natif vers squash puis merge puis rebase après certains refus HTTP 404/405 ; la préférence ne constitue donc pas une interdiction absolue du squash. Les erreurs HTTP 500/502/504 arrêtent la tentative sans ce repli.
+
+Une fusion peut déclencher les pipelines de production propres au projet. Aucun build ou déploiement de consommateur n'est lancé directement par ce workflow.
 
 ## Essai initial
 

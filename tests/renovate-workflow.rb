@@ -109,6 +109,9 @@ policy_check = <<~'JS'
   import { applyPackageRules } from '/usr/local/renovate/dist/util/package-rules/index.js';
   import { mergeChildConfig } from '/usr/local/renovate/dist/config/utils.js';
   import { getConfig } from '/usr/local/renovate/dist/workers/global/config/parse/env.js';
+  import { mapMergeStartegy } from '/usr/local/renovate/dist/modules/platform/github/common.js';
+  import { isNotFound, isMethodNotAllowed } from '/usr/local/renovate/dist/util/http/status.js';
+  import { regEx } from '/usr/local/renovate/dist/util/regex.js';
 
   const policy = JSON.parse(readFileSync('/config/renovate-wordpress.json', 'utf8'));
   const repositories = ['inrage/alpha', 'inrage/beta'];
@@ -133,7 +136,7 @@ policy_check = <<~'JS'
           const lateOverride = mergeChildConfig(actual, inherited);
           assert.equal(lateOverride.automerge, allowed, JSON.stringify({ manager, packageName, updateType, currentValue }));
           assert.equal(lateOverride.automergeType, 'pr');
-          assert.equal(lateOverride.automergeStrategy, 'auto');
+          assert.equal(lateOverride.automergeStrategy, 'merge-commit');
           assert.equal(lateOverride.platformAutomerge, false);
           assert.equal(lateOverride.ignoreTests, false);
           if (packageName !== 'inrage/docker-wordpress') assert.equal(actual.enabled, false);
@@ -144,6 +147,30 @@ policy_check = <<~'JS'
   }
 
   const githubSource = readFileSync('/usr/local/renovate/dist/modules/platform/github/index.js', 'utf8');
+  const mergeSource = githubSource.slice(githubSource.indexOf('async function directMergePr('), githubSource.indexOf('\nfunction massageMarkdown('));
+  assert.match(mergeSource, /^async function directMergePr\(/);
+  const mergeCases = [
+    ['successful merge', null, true],
+    ['HTTP 500', 500, false],
+    ['HTTP 502', 502, false],
+    ['HTTP 504', 504, false],
+  ];
+  for (const [name, statusCode, expected] of mergeCases) {
+    const attempts = [];
+    const directMergePr = runInNewContext(`${mergeSource}\ndirectMergePr`, {
+      logger: { debug() {}, warn() {}, info() {} },
+      config: { repository: 'inrage/example', mergeMethod: 'squash' },
+      mapMergeStartegy, isNotFound, isMethodNotAllowed, regEx,
+      isNonEmptyString: value => typeof value === 'string' && value.length > 0,
+      githubApi: { putJson: async (url, options) => {
+        attempts.push({ url, body: { ...options.body } });
+        if (statusCode) throw { response: { statusCode, body: { message: name } } };
+        return { body: { merged: true } };
+      } },
+    });
+    assert.equal(await directMergePr(1, policy.force.automergeStrategy), expected, name);
+    assert.deepEqual(attempts, [{ url: 'repos/inrage/example/pulls/1/merge', body: { merge_method: 'merge' } }], name);
+  }
   const statusSource = githubSource.slice(githubSource.indexOf('async function getBranchStatus('), githubSource.indexOf('\nasync function getStatusCheck('));
   assert.match(statusSource, /^async function getBranchStatus\(/);
   const statusCases = [
@@ -166,7 +193,7 @@ policy_check = <<~'JS'
     });
     assert.equal(await getBranchStatus('renovate-wordpress/wordpress-base-images', false), expected, name);
   }
-  console.log(`${checked} native automerge policy cases and ${statusCases.length} native status cases passed`);
+  console.log(`${checked} native automerge policy cases, ${mergeCases.length} native merge cases and ${statusCases.length} native status cases passed`);
 JS
 
 root = File.expand_path('..', __dir__)
