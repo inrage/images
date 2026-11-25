@@ -1,0 +1,103 @@
+name: Update WordPress consumers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - renovate-wordpress.json
+      - renovate-wordpress.dry-run.cjs
+      - .github/workflows/renovate-wordpress.yml
+      - tests/renovate-workflow.rb
+  pull_request:
+    paths:
+      - renovate-wordpress.json
+      - renovate-wordpress.dry-run.cjs
+      - .github/workflows/renovate-wordpress.yml
+      - tests/renovate-workflow.rb
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Operation
+        type: choice
+        options:
+          - simulate
+          - update
+          - configure-notifier
+        default: simulate
+      repository_filter:
+        description: Repository or pattern within inrage
+        type: string
+        default: inrage/*
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate Renovate configuration
+        run: |
+          ruby tests/renovate-workflow.rb
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/config,readonly" \
+            --entrypoint renovate-config-validator \
+            ghcr.io/renovatebot/renovate@sha256:9f571539ab94f0798d9439110ecf38c1e540920520794d87e111fbb97c322d50 \
+            --strict /config/renovate-wordpress.json /config/renovate-wordpress.dry-run.cjs
+  renovate:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: renovate-wordpress
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check access and scope
+        env:
+          GH_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
+          REPOSITORY_FILTER: ${{ inputs.repository_filter }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$MODE" in
+            simulate|update|configure-notifier) ;;
+            *) echo "Unsupported operation" >&2; exit 1 ;;
+          esac
+          if [[ "$MODE" != simulate && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "Write operations must run from main" >&2
+            exit 1
+          fi
+          if [[ ! "$REPOSITORY_FILTER" =~ ^inrage/[A-Za-z0-9_.*-]+$ ]]; then
+            echo "Use a single repository or pattern within inrage" >&2
+            exit 1
+          fi
+          test -n "$GH_TOKEN"
+          gh api user --jq '"GitHub account: " + .login'
+          gh api --include user | awk 'tolower($0) ~ /^x-oauth-scopes:/ {print}'
+          gh api repos/inrage/images --jq 'if .permissions.push then "Consumer workflow access: OK" else error("Missing write access to inrage/images") end'
+      - name: Configure publication notification
+        if: inputs.mode == 'configure-notifier'
+        env:
+          GH_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
+        run: |
+          printf '%s' "$GH_TOKEN" | gh secret set IMAGES_DISPATCH_TOKEN --repo inrage/docker-wordpress
+      - name: Update WordPress dependencies
+        if: inputs.mode != 'configure-notifier'
+        env:
+          RENOVATE_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
+          RENOVATE_AUTODISCOVER_FILTER: ${{ inputs.repository_filter }}
+          RENOVATE_CONFIG_FILE: ${{ inputs.mode == 'simulate' && '/config/renovate-wordpress.dry-run.cjs' || '/config/renovate-wordpress.json' }}
+        run: |
+          docker run --rm --cpus 2 --memory 4g \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/config,readonly" \
+            --env RENOVATE_TOKEN \
+            --env RENOVATE_AUTODISCOVER_FILTER \
+            --env RENOVATE_CONFIG_FILE \
+            --entrypoint renovate \
+            ghcr.io/renovatebot/renovate@sha256:9f571539ab94f0798d9439110ecf38c1e540920520794d87e111fbb97c322d50

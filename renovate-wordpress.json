@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "platform": "github",
+  "autodiscover": true,
+  "autodiscoverFilter": ["inrage/*"],
+  "onboarding": false,
+  "requireConfig": "required",
+  "inheritConfig": true,
+  "ignorePresets": ["github>inrage/inrage:wordpress-hosted-disabled"],
+  "enabledManagers": ["dockerfile", "custom.regex"],
+  "packageRules": [
+    {
+      "matchPackageNames": ["!inrage/docker-wordpress"],
+      "force": {"enabled": false}
+    },
+    {
+      "matchPackageNames": ["inrage/docker-wordpress"],
+      "groupName": "WordPress base images",
+      "groupSlug": "wordpress-base-images"
+    }
+  ],
+  "fetchChangeLogs": "off",
+  "persistRepoData": false,
+  "printConfig": false,
+  "force": {
+    "automerge": false,
+    "platformAutomerge": false,
+    "ignoreTests": false,
+    "branchPrefix": "renovate-wordpress/",
+    "branchPrefixOld": "renovate-wordpress/",
+    "pruneStaleBranches": false,
+    "configMigration": false,
+    "dependencyDashboard": {"enabled": false, "title": "WordPress image updates"},
+    "vulnerabilityAlerts": {"enabled": false},
+    "lockFileMaintenance": {"enabled": false}
+  }
+}
