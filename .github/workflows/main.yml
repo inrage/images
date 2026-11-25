@@ -11,49 +11,75 @@ on:
       - stability-tags/**
       - tools/**
       - update.sh
+      - tests/poller-workflow.rb
+      - tests/poller-git.py
   schedule:
     - cron: "17 * * * *"
 
   workflow_dispatch:
 
-env:
-  GITHUB_MACHINE_USER_API_TOKEN: ${{ secrets.GIT_GITHUB_MACHINE_USER_API_TOKEN }}
-  GITHUB_MACHINE_USER: ${{ secrets.GIT_GITHUB_MACHINE_USER }}
-  GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
-  GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
+permissions:
+  contents: read
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: |
+          ruby tests/poller-workflow.rb
+          python3 tests/poller-git.py
   images:
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       matrix:
         script: [php]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions
         with:
           dir: images
           script: ${{ matrix.script }}
+          repository: docker-php
+          app-client-id: ${{ vars.INRBOT_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.INRBOT_APP_PRIVATE_KEY }}
   stability-tags:
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         script: [docker-wordpress, docker-prestashop, frankenphp]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions
         with:
           dir: stability-tags
           script: ${{ matrix.script }}
+          repository: ${{ matrix.script }}
+          app-client-id: ${{ vars.INRBOT_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.INRBOT_APP_PRIVATE_KEY }}
   tools:
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       matrix:
         script: [wp-cli]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions
         with:
           dir: tools
           script: ${{ matrix.script }}
+          repository: docker-wordpress
+          app-client-id: ${{ vars.INRBOT_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.INRBOT_APP_PRIVATE_KEY }}

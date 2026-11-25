@@ -28,7 +28,11 @@ Les exécutions de mise à jour sont sérialisées. Le mode `update` exige la br
 
 L'application dédiée doit être installée sur l'organisation `inrage` avec accès à tous ses dépôts, y compris les futurs dépôts. Le workflow demande un jeton pour cette installation sans inventaire de sites. L'identité du bot et son auteur Git sont détectés par Renovate à partir de ce jeton.
 
-La variable d'organisation `RENOVATE_APP_CLIENT_ID` et le secret `RENOVATE_APP_PRIVATE_KEY` doivent être rendus accessibles uniquement à `images` et `docker-wordpress`. Aucun jeton personnel ni celui d'`InrBot` n'est utilisé par ce flux.
+L'ancien auteur `361048373+inrage-renovate[bot]@users.noreply.github.com` reste reconnu pour les branches créées avant un renommage de l'application. Cette exception ne couvre aucun auteur humain et ne désactive pas le contrôle d'auteur des PR.
+
+La variable d'organisation `INRBOT_APP_CLIENT_ID` et le secret `INRBOT_APP_PRIVATE_KEY` doivent être rendus accessibles uniquement à `images` et `docker-wordpress`. L'application sert aussi aux mises à jour des images de base. Aucun jeton personnel ni celui du compte utilisateur `InrBot` n'est utilisé par ce flux.
+
+Le workflow `Update` reçoit un jeton `Contents: write` limité au dépôt d'image ciblé par chaque job : PHP, WordPress, PrestaShop ou FrankenPHP. Son auteur Git est dérivé de l'identité actuelle de l'application. Le jeton n'est pas enregistré dans les URL Git. Les publications GHCR conservent leur `GITHUB_TOKEN` natif ; les identifiants Docker Hub restent distincts.
 
 Chaque job génère un jeton temporaire, valable au maximum une heure et révoqué à sa fin. Le mode `simulate` ne reçoit que des droits de lecture. Le mode `update` demande l'écriture sur Contents, Issues, Pull requests, Commit statuses et Workflows, ainsi que la lecture sur Administration, Checks et Members. Metadata reste implicitement en lecture. Les vérifications de mode, de branche et de filtre précèdent la création du jeton.
 

@@ -7,17 +7,62 @@ inputs:
   script:
     description: script name
     required: true
+  repository:
+    description: repository to update within inrage
+    required: true
+  app-client-id:
+    description: GitHub App client ID
+    required: true
+  app-private-key:
+    description: GitHub App private key
+    required: true
 runs:
   using: "composite"
   steps:
+    - name: Check execution scope
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+          echo "Image updates must run from main" >&2
+          exit 1
+        fi
+        if [[ ! "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+          echo "Use one repository within inrage" >&2
+          exit 1
+        fi
+      shell: bash
+    - name: Create update token
+      id: app-token
+      uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+      with:
+        client-id: ${{ inputs.app-client-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: inrage
+        repositories: ${{ inputs.repository }}
+        permission-contents: write
+    - name: Resolve bot identity
+      id: bot
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+      run: |
+        bot_login="${APP_SLUG}[bot]"
+        bot_id="$(gh api "users/${bot_login}" --jq .id)"
+        [[ "$bot_id" =~ ^[0-9]+$ ]]
+        printf 'name=%s\nemail=%s+%s@users.noreply.github.com\n' "$bot_login" "$bot_id" "$bot_login" >> "$GITHUB_OUTPUT"
+      shell: bash
     - name: Run update
       env:
         DEBUG: "1"
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        GIT_USER_NAME: ${{ steps.bot.outputs.name }}
+        GIT_USER_EMAIL: ${{ steps.bot.outputs.email }}
         dir: ${{ inputs.dir }}
         script: ${{ inputs.script }}
       run: |
         set -ex
-        docker run --platform linux/amd64 -e GITHUB_MACHINE_USER_API_TOKEN -e GITHUB_MACHINE_USER -e GIT_USER_EMAIL -e GIT_USER_NAME \
-        --rm -v $PWD:/images -v /tmp/docker-php:/tmp/docker-php -v /tmp/docker-prestashop:/tmp/docker-prestashop -v /var/run/docker.sock:/var/run/docker.sock wodby/docker:dev \
-          bash -c "cd /images/${dir} && ./${script}.sh"
+        docker run --platform linux/amd64 -e GITHUB_TOKEN -e GIT_USER_EMAIL -e GIT_USER_NAME \
+          --rm -v "$PWD:/images" -v /tmp/docker-php:/tmp/docker-php -v /tmp/docker-prestashop:/tmp/docker-prestashop -v /var/run/docker.sock:/var/run/docker.sock wodby/docker:dev \
+          bash -c 'cd "/images/$1" && exec "./$2.sh"' bash "$dir" "$script"
       shell: bash

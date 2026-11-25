@@ -8,6 +8,9 @@ fi
 
 git config --global user.email "${GIT_USER_EMAIL}"
 git config --global user.name "${GIT_USER_NAME}"
+git config --global --replace-all credential.https://github.com.helper ''
+git config --global --add credential.https://github.com.helper \
+  '!f() { set +x; if [ "$1" = get ]; then printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; }; f'
 
 _git_commit() {
   local dir="${1}"
@@ -48,7 +51,7 @@ _release_tag() {
 _git_clone() {
   local slug="${1}"
 
-  git clone "https://${GITHUB_MACHINE_USER}:${GITHUB_MACHINE_USER_API_TOKEN}@github.com/${slug}" "/tmp/${slug#*/}"
+  git clone "https://github.com/${slug}" "/tmp/${slug#*/}"
   cd "/tmp/${slug#*/}"
 }
 

@@ -7,6 +7,7 @@
   "requireConfig": "required",
   "inheritConfig": true,
   "ignorePresets": ["github>inrage/inrage:wordpress-hosted-disabled"],
+  "gitIgnoredAuthors": ["361048373+inrage-renovate[bot]@users.noreply.github.com"],
   "enabledManagers": ["dockerfile", "custom.regex"],
   "packageRules": [
     {
