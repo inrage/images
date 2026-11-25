@@ -13,6 +13,7 @@ on:
       - update.sh
       - tests/poller-workflow.rb
       - tests/poller-git.py
+      - tests/poller-base-images.py
   schedule:
     - cron: "17 * * * *"
 
@@ -31,6 +32,7 @@ jobs:
       - run: |
           ruby tests/poller-workflow.rb
           python3 tests/poller-git.py
+          python3 tests/poller-base-images.py
   images:
     needs: validate
     runs-on: ubuntu-latest

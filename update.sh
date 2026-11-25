@@ -169,58 +169,76 @@ _get_docker_image_timestamp() {
   curl -L -s "https://hub.docker.com/v2/repositories/${repo}/tags/${tag}" | jq -r '.last_updated'
 }
 
-_check_and_update_timestamps() {
+_get_docker_image_digest() {
+  local repo="${1}"
+  local tag="${2}"
+  local metadata
+
+  if [[ ! "${repo}" =~ / ]]; then
+    repo="library/${repo}"
+  fi
+
+  metadata=$(curl --fail --silent --show-error --location --connect-timeout 10 --max-time 60 \
+    "https://hub.docker.com/v2/repositories/${repo}/tags/${tag}") || return
+
+  jq -er '[.images[] | select(.os == "linux" and .architecture == "amd64") | .digest] | unique |
+    if length == 1 and (.[0] | type == "string" and test("^sha256:[a-f0-9]{64}$"))
+    then .[0] else error("Expected one linux/amd64 image digest") end' <<< "${metadata}"
+}
+
+_check_and_update_base_images() {
   local versions="${1}"
   local base_image="${2}"
-  local base_filename="${3}"
+  local identity="${3}"
+  local base_name="${base_image##*/}"
+  local filename=".${base_name##*-}"
+  local version current latest temporary
+  local -a arr_versions
 
-  local updated
+  case "${identity}" in
+    digest|timestamp) ;;
+    *) echo "Unsupported image identity: ${identity}" >&2; return 1 ;;
+  esac
 
-  IFS=' ' read -r -a arr_versions <<<"${versions}"
-
-  echo "=============================="
-  echo "Checking for timestamp updates"
-  echo "=============================="
+  IFS=' ' read -r -a arr_versions <<< "${versions}"
 
   for version in "${arr_versions[@]}"; do
-
-    local new_version_timestamp
-    local cur_timestamp
-
-    echo "Checking version: ${base_filename} ${version}"
-    new_version_timestamp=$(_get_docker_image_timestamp "${base_filename}" "${version}")
-
-    if [[ -z "${new_version_timestamp}" ]]; then
-      echo >&2 "Failed to acquire latest timestamp from Docker"
-      exit 1
+    current=$(awk -F '#' -v version="${version}" '$1 == version { print $2 }' "${filename}")
+    if [[ -z "${current}" || "${current}" == *$'\n'* ]]; then
+      echo "Expected one current identity for ${base_image}:${version}" >&2
+      return 1
+    fi
+    if [[ "${identity}" == digest && ! "${current}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+      echo "Initialize the verified digest baseline for ${base_image}:${version} before polling" >&2
+      return 1
     fi
 
-    local base_name="${base_filename##*/}"
-    local filename=".${base_name##*-}"
-
-    cur_timestamp=$(cat "${filename}" | grep "^${version}" | grep -oP "(?<=#)(.+)$")
-
-    if [[ -z "${cur_timestamp}" ]]; then
-      echo >&2 "Failed to acquire current timestamp"
-      exit 1
+    latest=$("_get_docker_image_${identity}" "${base_image}" "${version}") || return
+    if [[ -z "${latest}" || "${latest}" == null || "${latest}" == *$'\n'* ]]; then
+      echo "Failed to acquire ${identity} for ${base_image}:${version}" >&2
+      return 1
     fi
 
-    if [[ "${cur_timestamp}" != "${new_version_timestamp}" ]]; then
-      echo "Timestamp for ${version} (${cur_timestamp}) is outdated, updating to ${new_version_timestamp}"
-      sed -i "s/${version}#${cur_timestamp}/${version}#${new_version_timestamp}/" "${filename}"
-      updated=1
+    if [[ "${current}" != "${latest}" ]]; then
+      echo "Base image changed: ${base_image}:${version}"
+      temporary=$(mktemp "${filename}.XXXXXX")
+      awk -F '#' -v OFS='#' -v version="${version}" -v latest="${latest}" \
+        '$1 == version { $2 = latest } { print }' "${filename}" > "${temporary}"
+      mv "${temporary}" "${filename}"
+    else
+      echo "Base image unchanged: ${base_image}:${version}"
     fi
-
   done
+}
 
-  if [[ -n "${updated}" ]]; then
-    echo "Committing changes..."
-    _git_commit ./ "chore(deps): rebuild against updated base image"
-
-    git push origin
-  else
-    echo "No changes detected in timestamps."
+_publish_base_image_updates() {
+  if git diff --quiet; then
+    echo "No base image changes to publish."
+    return
   fi
+
+  _git_commit ./ "chore(deps): rebuild against updated base image"
+  git push origin
 }
 
 update_and_rebuild() {
@@ -230,5 +248,6 @@ update_and_rebuild() {
 
   _git_clone "${image}"
 
-  _check_and_update_timestamps "${versions}" "${image}" "${base_image}"
+  _check_and_update_base_images "${versions}" "${base_image}" timestamp
+  _publish_base_image_updates
 }
