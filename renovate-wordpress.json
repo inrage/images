@@ -18,6 +18,12 @@
       "matchPackageNames": ["inrage/docker-wordpress"],
       "groupName": "WordPress base images",
       "groupSlug": "wordpress-base-images"
+    },
+    {
+      "matchPackageNames": ["inrage/docker-wordpress"],
+      "matchUpdateTypes": ["digest"],
+      "matchCurrentValue": "/^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:-(?:redis|frankenphp))?$/",
+      "force": {"automerge": true}
     }
   ],
   "fetchChangeLogs": "off",
@@ -25,6 +31,8 @@
   "printConfig": false,
   "force": {
     "automerge": false,
+    "automergeType": "pr",
+    "automergeStrategy": "auto",
     "platformAutomerge": false,
     "ignoreTests": false,
     "branchPrefix": "renovate-wordpress/",

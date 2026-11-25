@@ -4,6 +4,13 @@ require 'open3'
 
 workflow = YAML.load_file(File.join(__dir__, '../.github/workflows/renovate-wordpress.yml'))
 steps = workflow.fetch('jobs').fetch('renovate').fetch('steps')
+job = workflow.fetch('jobs').fetch('renovate')
+triggers = workflow.fetch('on', workflow[true])
+raise 'Reconciliation must run hourly' unless triggers.fetch('schedule') == [{ 'cron' => '37 * * * *' }]
+raise 'Only dispatches and reconciliation may run Renovate' unless job['if'] == "github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'"
+raise 'Reconciliation must retain serialized runs' unless job.fetch('concurrency') == { 'group' => 'renovate-wordpress', 'cancel-in-progress' => false }
+raise 'Scheduled mode must explicitly be update' unless job.fetch('env').fetch('MODE') == "${{ github.event_name == 'schedule' && 'update' || inputs.mode }}"
+raise 'Scheduled discovery must stay in inrage' unless job.fetch('env').fetch('REPOSITORY_FILTER') == "${{ github.event_name == 'schedule' && 'inrage/*' || inputs.repository_filter }}"
 scope_index = steps.index { |step| step['name'] == 'Check execution scope' }
 token_index = steps.index { |step| step['id'] == 'app-token' }
 access_index = steps.index { |step| step['name'] == 'Check GitHub App access' }
@@ -45,3 +52,72 @@ Dir.mktmpdir('renovate-preflight-') do |dir|
 end
 
 puts "#{cases.length} preflight cases passed"
+
+policy_check = <<~'JS'
+  import assert from 'node:assert/strict';
+  import { readFileSync } from 'node:fs';
+  import { runInNewContext } from 'node:vm';
+  import { applyPackageRules } from '/usr/local/renovate/dist/util/package-rules/index.js';
+  import { mergeChildConfig } from '/usr/local/renovate/dist/config/utils.js';
+
+  const policy = JSON.parse(readFileSync('/config/renovate-wordpress.json', 'utf8'));
+  const inherited = {
+    automerge: true, automergeType: 'branch', automergeStrategy: 'squash', platformAutomerge: true, ignoreTests: true,
+    packageRules: [{ matchPackageNames: ['*'], automerge: true, platformAutomerge: true, ignoreTests: true }],
+  };
+  let checked = 0;
+  for (const manager of ['dockerfile', 'custom.regex']) {
+    for (const packageName of ['inrage/docker-wordpress', 'inrage/docker-php']) {
+      for (const updateType of ['digest', 'pinDigest', 'major', 'minor', 'patch', 'rollback', 'replacement']) {
+        for (const currentValue of ['7.2', '8.3-redis', '8.4-frankenphp', '8.3.1', 'latest', 'latest-redis', '8', '8.4-unknown']) {
+          const input = mergeChildConfig(mergeChildConfig(policy, inherited), {
+            manager, packageName, depName: packageName, updateType, currentValue,
+          });
+          const actual = await applyPackageRules(input, 'automerge-policy');
+          const allowed = packageName === 'inrage/docker-wordpress' && updateType === 'digest'
+            && ['7.2', '8.3-redis', '8.4-frankenphp', '8.3.1'].includes(currentValue);
+          const lateOverride = mergeChildConfig(actual, inherited);
+          assert.equal(lateOverride.automerge, allowed, JSON.stringify({ manager, packageName, updateType, currentValue }));
+          assert.equal(lateOverride.automergeType, 'pr');
+          assert.equal(lateOverride.automergeStrategy, 'auto');
+          assert.equal(lateOverride.platformAutomerge, false);
+          assert.equal(lateOverride.ignoreTests, false);
+          if (packageName !== 'inrage/docker-wordpress') assert.equal(actual.enabled, false);
+          checked++;
+        }
+      }
+    }
+  }
+
+  const githubSource = readFileSync('/usr/local/renovate/dist/modules/platform/github/index.js', 'utf8');
+  const statusSource = githubSource.slice(githubSource.indexOf('async function getBranchStatus('), githubSource.indexOf('\nasync function getStatusCheck('));
+  assert.match(statusSource, /^async function getBranchStatus\(/);
+  const statusCases = [
+    ['no checks', [], 'yellow'],
+    ['CodeRabbit skipped', ['skipped'], 'green'],
+    ['successful CI', ['success'], 'green'],
+    ['successful CI and skipped review', ['success', 'skipped'], 'green'],
+    ['pending CI', [null, 'skipped'], 'yellow'],
+    ['failed CI', ['failure', 'skipped'], 'red'],
+    ['cancelled CI', ['cancelled', 'skipped'], 'yellow'],
+  ];
+  for (const [name, conclusions, expected] of statusCases) {
+    const getBranchStatus = runInNewContext(`${statusSource}\ngetBranchStatus`, {
+      logger: { debug() {}, warn() {} }, config: { repository: 'inrage/example' },
+      getStatus: async () => ({ state: 'pending', statuses: [] }),
+      escapeHash: value => value, memCacheProvider: {},
+      githubApi: { getJsonUnchecked: async () => ({ body: { check_runs: conclusions.map(conclusion => ({
+        name, status: conclusion === null ? 'in_progress' : 'completed', conclusion,
+      })) } }) },
+    });
+    assert.equal(await getBranchStatus('renovate-wordpress/wordpress-base-images', false), expected, name);
+  }
+  console.log(`${checked} native automerge policy cases and ${statusCases.length} native status cases passed`);
+JS
+
+root = File.expand_path('..', __dir__)
+image = steps.find { |step| step['name'] == 'Update WordPress dependencies' }.fetch('run')[%r{ghcr.io/renovatebot/renovate@sha256:[a-f0-9]{64}}]
+raise 'Native policy validation requires the pinned Renovate image' unless image
+stdout, stderr, status = Open3.capture3('docker', 'run', '--rm', '-i', '--platform', 'linux/amd64', '--network', 'none', '--mount', "type=bind,source=#{root},target=/config,readonly", '--entrypoint', '/usr/local/renovate/node', image, '--input-type=module', stdin_data: policy_check)
+raise "Native automerge policy validation failed: #{stdout}\n#{stderr}" unless status.success?
+puts stdout
