@@ -40,7 +40,7 @@ Le job producteur génère son propre jeton d'application, limité au dépôt `i
 
 ## Configuration et protections
 
-`renovate-wordpress.json` contient la politique commune. `renovate-wordpress.dry-run.cjs` ajoute `dryRun: full` et le blocage des écritures API GitHub. Ces deux protections doivent rester ensemble : Renovate 44.262.1 ne protège pas tous ses nettoyages d'issues avec son seul mode simulation.
+`renovate-wordpress.json` contient la politique commune. `renovate-wordpress.dry-run.cjs` ajoute `dryRun: full` et s'utilise avec le jeton GitHub App en lecture seule généré par le workflow. GitHub interdit ainsi les écritures que le seul mode simulation de Renovate 44.262.1 ne bloque pas, notamment certains nettoyages d'issues. Ce fichier ne doit pas être exécuté avec un jeton personnel disposant de droits d'écriture.
 
 L'image officielle Renovate 44.262.1 est épinglée par digest. Les configurations sont validées sans réseau. Le nettoyage des anciennes branches, les migrations de configuration, les alertes de vulnérabilité et la maintenance des fichiers de verrouillage sont désactivés. Le dashboard utilise un titre distinct de celui de Mend.
 
